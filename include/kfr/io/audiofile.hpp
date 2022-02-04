@@ -66,10 +66,22 @@ namespace kfr
 
 struct audio_format
 {
-    size_t channels        = 2;
-    audio_sample_type type = audio_sample_type::i16;
-    fmax samplerate        = 44100;
-    bool use_w64           = false;
+    size_t channels             = 2;
+    audio_sample_type type      = audio_sample_type::i16;
+    fmax samplerate             = 44100;
+    /**
+     * \deprecated use wav_64bit_format instead. \n
+     * It will be true when reading both W64 and RF64 wavs. Check wav_64bit_format to know actual 64bit format.
+     * Due to compatibility concern, when writing wav, if wav_64bit_format is riff and this has been set to true, w64 will be used instead.
+     * */
+    [[deprecated]] bool use_w64 = false;
+
+    enum wav_format_t {
+        riff = 0,
+        w64,
+        rf64,
+        not_use = riff, //A more readable alias
+    } wav_format = riff;
 };
 
 struct audio_format_and_length : audio_format
@@ -186,7 +198,16 @@ struct audio_writer_wav : audio_writer<T>
         wav_fmt.format =
             fmt.type >= audio_sample_type::first_float ? DR_WAVE_FORMAT_IEEE_FLOAT : DR_WAVE_FORMAT_PCM;
         wav_fmt.bitsPerSample = static_cast<drwav_uint32>(audio_sample_bit_depth(fmt.type));
-        wav_fmt.container     = fmt.use_w64 ? drwav_container_w64 : drwav_container_riff;
+        //wav_fmt.container     = fmt.use_w64 ? drwav_container_w64 : drwav_container_riff;
+        switch (fmt.wav_format)
+        {
+        case audio_format::riff:
+            wav_fmt.container = fmt.use_w64 ? drwav_container_w64 : drwav_container_riff;
+        case audio_format::w64:
+            wav_fmt.container = drwav_container_w64;
+        case audio_format::rf64:
+            wav_fmt.container = drwav_container_rf64;
+        }
         closed = !drwav_init_write(&f, &wav_fmt, (drwav_write_proc)&internal_generic::drwav_writer_write_proc,
                                    (drwav_seek_proc)&internal_generic::drwav_writer_seek_proc,
                                    this->writer.get(), nullptr);
@@ -257,6 +278,20 @@ struct audio_reader_wav : audio_reader<T>
         fmt.channels   = f.channels;
         fmt.samplerate = f.sampleRate;
         fmt.length     = static_cast<imax>(f.totalPCMFrameCount);
+        switch (f.container)
+        {
+        case drwav_container_riff:
+            fmt.wav_format = audio_format::riff;
+            break;
+        case drwav_container_rf64:
+            fmt.wav_format = audio_format::rf64;
+            fmt.use_w64 = true;
+            break;
+        case drwav_container_w64:
+            fmt.wav_format = audio_format::w64;
+            fmt.use_w64 = true;
+            break;
+        }
         switch (f.translatedFormatTag)
         {
         case DR_WAVE_FORMAT_IEEE_FLOAT:
