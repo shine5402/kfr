@@ -6,6 +6,7 @@
 #include "../cident.h"
 
 #include <cstdint>
+#include <cstddef>
 #include <tuple>
 
 namespace kfr
